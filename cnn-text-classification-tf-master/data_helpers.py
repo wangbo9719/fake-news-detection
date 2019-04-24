@@ -1,6 +1,6 @@
 import numpy as np
 import re
-
+import pandas as pd
 
 def clean_str(string):
     """
@@ -29,11 +29,17 @@ def load_data_and_labels(positive_data_file, negative_data_file):
     Returns split sentences and labels.
     """
     # Load data from files
-    positive_examples = list(open(positive_data_file, "r", encoding='utf-8').readlines())
-    positive_examples = [s.strip() for s in positive_examples] #去除首尾空格
-    negative_examples = list(open(negative_data_file, "r", encoding='utf-8').readlines())
-    negative_examples = [s.strip() for s in negative_examples]
+    #positive_examples = list(open(positive_data_file, "r", encoding='utf-8').readlines())
+    #positive_examples = [s.strip() for s in positive_examples] #去除首尾空格
+    #negative_examples = list(open(negative_data_file, "r", encoding='utf-8').readlines())
+    #negative_examples = [s.strip() for s in negative_examples]
     # Split by words
+    positive = pd.read_csv(positive_data_file, encoding='gb18030')
+    positive_examples = list(positive['content'])
+    negative = pd.read_csv(negative_data_file, encoding='gb18030')
+    negative_examples = list(negative['content'])
+    print(positive_examples)
+    print(negative_examples)
     x_text = positive_examples + negative_examples
     x_text = [clean_str(sent) for sent in x_text]
     # Generate labels

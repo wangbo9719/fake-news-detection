@@ -21,9 +21,9 @@ if 1:
     result_obj.result_destination_folder_path = './result_samples/'
     result_obj.result_destination_file_name = 'textCNN' + str(alpha)
     
-    setting_obj = SettingCV('', '')
-    
     evaluate_obj = EvaluateAcc('', '')
+
+    setting_obj = SettingCV('', '')
     #------------------------------------------------------
     
     #---- running section ---------------------------------

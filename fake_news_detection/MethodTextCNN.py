@@ -6,14 +6,7 @@ Concrete MethodModule class for a specific learning MethodModule
 # License: TBD
 
 from method import method
-import collections
-import time
-import copy
 import pickle
-import random
-from tensorflow.contrib import rnn
-#from MethodGDUCells import MethodGDUCell
-from tensorflow.python.framework import ops
 import tensorflow as tf
 import numpy as np
 import os
@@ -78,13 +71,16 @@ class TextCNN(object):
         # Create a convolution + maxpool layer for each filter size
         #对不同窗口尺寸的过滤器都创造一个卷积层和池化层
         pooled_outputs = []
-        for i, filter_size in enumerate(filter_sizes):
-            with tf.name_scope("conv-maxpool-%s" % filter_size):
+        for i, filter_size in enumerate(filter_sizes): #遍历卷积核的各个size
+            with tf.name_scope("conv-maxpool-%s" % filter_size):#建立一个名魏conv-maxpool的模块
                 # Convolution Layer
                 filter_shape = [filter_size, embedding_size, 1, num_filters]
+                # 卷积核参数：高*宽*通道*卷积核个数
                 W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
+                # W表示截断产生正态分布数据，方差为0.1，变量维度为filter_shape的张量
                 b = tf.Variable(tf.constant(0.1, shape=[num_filters]), name="b")
-                conv = tf.nn.conv2d(
+                # b表示变量维度为卷积核个数，数值为0.1的张量
+                conv = tf.nn.conv2d(#实现卷积
                     self.embedded_chars_expanded,
                     W,
                     strides=[1, 1, 1, 1],
@@ -100,9 +96,12 @@ class TextCNN(object):
                     padding='VALID',
                     name="pool")
                 pooled_outputs.append(pooled)
+                # 一个pooled是一种卷积核处理一个样本之后得到的一个值，如果有三种卷积核，则append了三次
 
         # Combine all the pooled features，将max-pooling层的各种特征整合在一起
+        # 每种卷积核的个数与卷积核的种类乘积，等于全部的卷积核个数
         num_filters_total = num_filters * len(filter_sizes)
+        # 将pooled_outputs在第四维度上进行拼接
         self.h_pool = tf.concat(pooled_outputs, 3)
         self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
 
@@ -138,182 +137,66 @@ class MethodTextCNN(method):
     data_type = None
     data = None
     learning_rate = 0.01
-    n_hidden_rnn_layer1 = None
-    n_hidden_rnn_layer2 = None
-    n_hidden_gdu = None
 
-    dictionary = None
-    reverse_dictionary = None
-    vocab_size = None
-    max_string_length = None
-
-    article_id_index_dict = None
-    article_index_id_dict = None
-    creator_id_index_dict = None
-    creator_index_id_dict = None
-    subject_id_index_dict = None
-    subject_index_id_dict = None
-
-    article_train_set = None
-    article_test_set = None
-    creator_train_set = None
-    creator_test_set = None
-    subject_train_set = None
-    subject_test_set = None
-
-    article_credibility_dict = None
-    creator_credibility_dict = None
-    subject_credibility_dict = None
-
-    AS_matrix = None
-    AC_matrix = None
-    padding_x = None
-
-    article_seed_batch_index = None
-    creator_seed_batch_index = None
-    subject_seed_batch_index = None
-
-    def build_name_index_dict(self, input_dict):
-        dictionary = {}
-        reverse_dictionary = {}
-        index = 0
-        for idd in input_dict:
-            dictionary[idd] = index
-            reverse_dictionary[index] = idd
-            index += 1
-        return dictionary, reverse_dictionary
-
-    def build_dataset(self, word_list):
-        self.article_credibility_dict = self.data['setting']['ground_truth']['artilcle_crediblity_dict']
-        self.creator_credibility_dict = self.data['setting']['ground_truth']['creator_credibility_dict']
-        self.subject_credibility_dict = self.data['setting']['ground_truth']['subject_credibility_dict']
-
-        self.article_train_set = \
-        self.data['setting']['CV_Sampling']['article_sampling_dict'][self.fold][self.sample_ratio]['train']
-        self.article_test_set = \
-        self.data['setting']['CV_Sampling']['article_sampling_dict'][self.fold][self.sample_ratio]['test']
-        self.creator_train_set = \
-        self.data['setting']['CV_Sampling']['creator_sampling_dict'][self.fold][self.sample_ratio]['train']
-        self.creator_test_set = \
-        self.data['setting']['CV_Sampling']['creator_sampling_dict'][self.fold][self.sample_ratio]['test']
-        self.subject_train_set = \
-        self.data['setting']['CV_Sampling']['subject_sampling_dict'][self.fold][self.sample_ratio]['train']
-        self.subject_test_set = \
-        self.data['setting']['CV_Sampling']['subject_sampling_dict'][self.fold][self.sample_ratio]['test']
-
-        self.article_id_index_dict, self.article_index_id_dict = self.build_name_index_dict(
-            self.article_credibility_dict)
-        self.creator_id_index_dict, self.creator_index_id_dict = self.build_name_index_dict(
-            self.creator_credibility_dict)
-        self.subject_id_index_dict, self.subject_index_id_dict = self.build_name_index_dict(
-            self.subject_credibility_dict)
-
-        count = collections.Counter(word_list).most_common()
-        self.dictionary = dict()
-        for word, _ in count:
-            self.dictionary[word] = len(self.dictionary)
-        self.reverse_dictionary = dict(zip(self.dictionary.values(), self.dictionary.keys()))
-        self.vocab_size = len(self.dictionary)
-
-        self.padding_x = self.dictionary['dummy_word_that_will_never_appear']
-
-    def get_word__dict(self):
-        word_list = []
-        self.max_string_length = 0
-        length_list = []
-        for article in self.data['node']['article']:
-            content = self.data['node']['article'][article]['content']
-            words = content.lower().split(' ')
-            if len(words) > 100:
-                words = words[:100]
-            word_list.extend(words)
-            if len(words) > self.max_string_length:
-                self.max_string_length = len(words)
-            length_list.append(len(words))
-
-        for creator in self.data['node']['creator']:
-            content = self.data['node']['creator'][creator]['profile']
-            words = content.lower().split(' ')
-            if len(words) > 100:
-                words = words[:100]
-            word_list.extend(words)
-            if len(words) > self.max_string_length:
-                self.max_string_length = len(words)
-            length_list.append(len(words))
-
-        for subject in self.data['link']['subject_article']:
-            words = [subject.lower()]
-            word_list.extend(words)
-
-        word_list.extend(['dummy_word_that_will_never_appear'] * 100000)
-        return word_list
-
-    def batch_generation(self):
-        article_train_X = []
-        article_train_y = []
-        for article in self.article_train_set:
-            x = self.entity_feature_dict[article]
-            y = self.article_credibility_dict[article]
-            article_train_X.append(x)
-            article_train_y.append(y)
-        article_test_X = []
-        article_test_y = []
-        for article in self.article_test_set:
-            x = self.entity_feature_dict[article]
-            y = self.article_credibility_dict[article]
-            article_test_X.append(x)
-            article_test_y.append(y)
-
-        creator_train_X = []
-        creator_train_y = []
-        for creator in self.creator_train_set:
-            x = self.entity_feature_dict[creator]
-            y = self.creator_credibility_dict[creator]
-            creator_train_X.append(x)
-            creator_train_y.append(y)
-        creator_test_X = []
-        creator_test_y = []
-        for creator in self.creator_test_set:
-            x = self.entity_feature_dict[creator]
-            y = self.creator_credibility_dict[creator]
-            creator_test_X.append(x)
-            creator_test_y.append(y)
-
-        subject_train_X = []
-        subject_train_y = []
-        for subject in self.subject_train_set:
-            x = self.entity_feature_dict[subject]
-            y = self.subject_credibility_dict[subject]
-            subject_train_X.append(x)
-            subject_train_y.append(y)
-        subject_test_X = []
-        subject_test_y = []
-        for subject in self.subject_test_set:
-            x = self.entity_feature_dict[subject]
-            y = self.subject_credibility_dict[subject]
-            subject_test_X.append(x)
-            subject_test_y.append(y)
-        subject_train_y[-1] = 0
-
-        return article_train_X, article_train_y, article_test_X, article_test_y, creator_train_X, creator_train_y, creator_test_X, creator_test_y, subject_train_X, subject_train_y, subject_test_X, subject_test_y
     def preprocess(self):  # 打乱样本；分为训练集和测试集两部分
         # Data Preparation
         # ==================================================
 
         # Load data
+        '''
         print("Loading data...")
-        #x_text, y = data_helpers.load_data_and_labels(FLAGS.positive_data_file, FLAGS.negative_data_file)
-        x_text, y = self.data.article_test_set, self.article_credibility_dict
+        content_dic = open('./data_samples/article_content_dic','rb')
+        credi_dic = open('./data_samples/article_credibility_dic', 'rb')
+        content = list(pickle.load(content_dic).values()) #内容列表
+        credi = list(pickle.load(credi_dic).values()) #rating列表  顺序是对应的
+        #label处理为0，1值
+        for i,_ in enumerate(credi):
+            if credi[i] > 3: #0为正
+                credi[i] = [0,1]
+            elif credi[i] < 4:
+                credi[i] = [1, 0]
+            else:
+                print(i,credi[i])
+
+        content_credi_all = dict()
+        for i, _ in enumerate(credi):
+            content_credi = dict()
+            content_credi['content'] = content[i]
+            content_credi['credi'] = credi[i]
+            content_credi_all[i] = content_credi
+
+        pos_con = []
+        neg_con = []
+        pos_credi = []
+        neg_credi = []
+        for i,_ in enumerate(content_credi_all):
+            if content_credi_all[i]['credi'][0] == 0:
+                pos_con.append(content_credi_all[i]['content'])
+                pos_credi.append([0,1])
+            else:
+                neg_con.append(content_credi_all[i]['content'])
+                neg_credi.append([1,0
+                                  ])
+
+
+        y = np.concatenate([pos_credi, neg_credi], 0)
+        x_text = pos_con + neg_con
+        print(x_text)
+        print(len(x_text))
+        print(y)
+        print(len(y))
         # Build vocabulary
         max_document_length = max([len(x.split(" ")) for x in x_text])
         vocab_processor = learn.preprocessing.VocabularyProcessor(max_document_length)
+        #learn.preprocessing.VocabularyProcessor, 根据所有已分词好的文本建立好一个词典，然后找出每个词在词典中对应的索引，不足长度或者不存在的词补0
         x = np.array(list(vocab_processor.fit_transform(x_text)))
 
         # Randomly shuffle data
         np.random.seed(10)
         shuffle_indices = np.random.permutation(np.arange(len(y)))
+        print('shuffle_indices:',shuffle_indices)
         x_shuffled = x[shuffle_indices]
-        y_shuffled = y[shuffle_indices]
+        y_shuffled = np.array(y)[shuffle_indices]
 
         # Split train/test set
         # TODO: This is very crude, should use cross-validation
@@ -325,7 +208,9 @@ class MethodTextCNN(method):
 
         print("Vocabulary Size: {:d}".format(len(vocab_processor.vocabulary_)))
         print("Train/Dev split: {:d}/{:d}".format(len(y_train), len(y_dev)))
+        #print("x_train:",x_train,"\n y_train:",y_train)
         return x_train, y_train, vocab_processor, x_dev, y_dev
+        '''
 
     def train(self,x_train, y_train, vocab_processor, x_dev, y_dev):
         # Training
@@ -435,17 +320,16 @@ class MethodTextCNN(method):
                     x_batch, y_batch = zip(*batch)
                     train_step(x_batch, y_batch)
                     current_step = tf.train.global_step(sess, global_step)
-                    if current_step % FLAGS.evaluate_every == 0:
+                    if current_step % FLAGS.evaluate_every == 0: #每100步
                         print("\nEvaluation:")
                         dev_step(x_dev, y_dev, writer=dev_summary_writer)
                         print("")
-                    if current_step % FLAGS.checkpoint_every == 0:
+                    if current_step % FLAGS.checkpoint_every == 0: #每100步
                         path = saver.save(sess, checkpoint_prefix, global_step=current_step)
                         print("Saved model checkpoint to {}\n".format(path))
 
     def run(self):
-        word_list = self.get_word__dict()
-        self.build_dataset(word_list)
-        #x_train, y_train, vocab_processor, x_dev, y_dev = self.preprocess()
-        #self.train(x_train, y_train, vocab_processor, x_dev, y_dev)
+        self.start_time = time.time()
+        x_train, y_train, vocab_processor, x_dev, y_dev = self.preprocess()
+        self.train(x_train, y_train, vocab_processor, x_dev, y_dev)
 

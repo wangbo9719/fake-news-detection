@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-
+#开始进行train，并利用summary和checkpoints来记录模型和训练时的参数等等，利用十折交叉验证来产生准确率，最后利用tensorboard查看accuracy、loss、w、b等等变化图;训练py的代码：
 import tensorflow as tf
 import numpy as np
 import os
@@ -15,8 +15,8 @@ from tensorflow.contrib import learn
 
 # Data loading params
 tf.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
-tf.flags.DEFINE_string("positive_data_file", "./data/rt-polaritydata/rt-polarity.pos", "Data source for the positive data.")
-tf.flags.DEFINE_string("negative_data_file", "./data/rt-polaritydata/rt-polarity.neg", "Data source for the negative data.")
+tf.flags.DEFINE_string("positive_data_file", "./data/rt-polaritydata/pos_examples.csv", "Data source for the positive data.")
+tf.flags.DEFINE_string("negative_data_file", "./data/rt-polaritydata/neg_examples.csv", "Data source for the negative data.")
 
 # Model Hyperparameters
 tf.flags.DEFINE_integer("embedding_dim", 128, "Dimensionality of character embedding (default: 128)")

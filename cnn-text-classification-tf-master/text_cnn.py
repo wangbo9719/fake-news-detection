@@ -21,16 +21,20 @@ class TextCNN(object):
 
         # Embedding layer
         with tf.device('/cpu:0'), tf.name_scope("embedding"):
+            # 词向量表
             self.W = tf.Variable(
-                tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0),
+                tf.random_uniform([vocab_size, embedding_size], -1.0, 1.0), #随机初始化词向量表
                 name="W")
             self.embedded_chars = tf.nn.embedding_lookup(self.W, self.input_x)
+            # 这个tf.nn.embedding_lookup()的作用就是从词向量表中去找input_x所对应的词向量；
             self.embedded_chars_expanded = tf.expand_dims(self.embedded_chars, -1)
+            # 由于CNN输入都是四维，所以在最后一维添加一个维度，与CNN的输入维度对照起来。
 
         # Create a convolution + maxpool layer for each filter size
+        #对不同窗口尺寸的过滤器都创造一个卷积层和池化层
         pooled_outputs = []
-        for i, filter_size in enumerate(filter_sizes):
-            with tf.name_scope("conv-maxpool-%s" % filter_size):
+        for i, filter_size in enumerate(filter_sizes): #遍历卷积核的各种种类
+            with tf.name_scope("conv-maxpool-%s" % filter_size): #简历一个
                 # Convolution Layer
                 filter_shape = [filter_size, embedding_size, 1, num_filters]
                 W = tf.Variable(tf.truncated_normal(filter_shape, stddev=0.1), name="W")
@@ -52,16 +56,16 @@ class TextCNN(object):
                     name="pool")
                 pooled_outputs.append(pooled)
 
-        # Combine all the pooled features
+        # Combine all the pooled features，将max-pooling层的各种特征整合在一起
         num_filters_total = num_filters * len(filter_sizes)
         self.h_pool = tf.concat(pooled_outputs, 3)
         self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
 
-        # Add dropout ，随机失活
+        # Add dropout ，随机失活，缓解过拟合
         with tf.name_scope("dropout"):
             self.h_drop = tf.nn.dropout(self.h_pool_flat, self.dropout_keep_prob)
 
-        # Final (unnormalized) scores and predictions
+        # Final (unnormalized) scores and predictions，产生最后的预测和输出
         with tf.name_scope("output"):
             W = tf.get_variable(
                 "W",
@@ -73,12 +77,12 @@ class TextCNN(object):
             self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name="scores")
             self.predictions = tf.argmax(self.scores, 1, name="predictions")
 
-        # Calculate mean cross-entropy loss
+        # Calculate mean cross-entropy loss，定义模型的损失函数
         with tf.name_scope("loss"):
             losses = tf.nn.softmax_cross_entropy_with_logits(logits=self.scores, labels=self.input_y)
             self.loss = tf.reduce_mean(losses) + l2_reg_lambda * l2_loss
 
-        # Accuracy
+        # Accuracy，定义模型的准确率
         with tf.name_scope("accuracy"):
             correct_predictions = tf.equal(self.predictions, tf.argmax(self.input_y, 1))
             self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")
