@@ -1,11 +1,3 @@
-'''
-Base evaluate class for all evaluation metrics and methods
-'''
-
-# Copyright (c) 2017 Jiawei Zhang <jwzhanggy@gmail.com>
-# License: TBD
-
-
 import abc
 
 

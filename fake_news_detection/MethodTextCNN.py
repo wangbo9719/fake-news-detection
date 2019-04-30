@@ -14,6 +14,8 @@ import time
 import datetime
 import data_helpers
 from tensorflow.contrib import learn
+import string
+import sys
 
 tf.flags.DEFINE_float("dev_sample_percentage", .1, "Percentage of the training data to use for validation")
 tf.flags.DEFINE_string("positive_data_file", "./data/rt-polaritydata/rt-polarity.pos",
@@ -132,87 +134,83 @@ class TextCNN(object):
             self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")
 
 class MethodTextCNN(method):
-    fold = None
-    sample_ratio = None
+
     data_type = None
-    data = None
     learning_rate = 0.01
 
-    def preprocess(self):  # 打乱样本；分为训练集和测试集两部分
-        # Data Preparation
-        # ==================================================
+    data = None
+    train_test_divide = None
+    article_credibility_dict = None
+    sample_ratios = None
 
-        # Load data
-        '''
-        print("Loading data...")
-        content_dic = open('./data_samples/article_content_dic','rb')
-        credi_dic = open('./data_samples/article_credibility_dic', 'rb')
-        content = list(pickle.load(content_dic).values()) #内容列表
-        credi = list(pickle.load(credi_dic).values()) #rating列表  顺序是对应的
-        #label处理为0，1值
-        for i,_ in enumerate(credi):
-            if credi[i] > 3: #0为正
-                credi[i] = [0,1]
-            elif credi[i] < 4:
-                credi[i] = [1, 0]
+    article_train_index_list = None
+    article_test_index_list = None
+
+    def build_dataset(self, sample_ratio):
+        self.article_train_index_list = self.train_test_divide[sample_ratio]['train']
+        self.article_test_index_list = self.train_test_divide[sample_ratio]['test']
+
+    def bi_class_batch_generation(self):
+
+        #-----------------train-----------------------
+        for article_train_index in self.article_train_index_list:
+            if article_train_index not in self.article_credibility_dict:
+                self.article_train_index_list.remove(article_train_index)
+        article_train_X = []
+        article_train_y = []
+        for i in range(len(self.article_train_index_list)):
+            article_train_X.append('')
+            article_train_y.append([0,0])
+        order_num_train = 0
+
+        for article_train_index in self.article_train_index_list:
+            if article_train_index not in self.article_credibility_dict: continue
+            y = self.article_credibility_dict[article_train_index]
+            if y >= 4:
+                y = [1,0]
             else:
-                print(i,credi[i])
+                y = [0,1]
+            article_train_y[order_num_train] = y
+            content = self.data['node']['article'][article_train_index]['content']
+            content = content.translate(str.maketrans('', '', string.punctuation))
+            article_train_X[order_num_train] = content
+            order_num_train += 1
+        article_train_y = np.concatenate([article_train_y], 0)
 
-        content_credi_all = dict()
-        for i, _ in enumerate(credi):
-            content_credi = dict()
-            content_credi['content'] = content[i]
-            content_credi['credi'] = credi[i]
-            content_credi_all[i] = content_credi
+        #-----------------test------------------
+        for article_test_index in self.article_test_index_list:
+            if article_test_index not in self.article_credibility_dict:
+                self.article_test_index_list.remove(article_test_index)
+        article_test_X = []
+        article_test_y = []
+        for i in range(len(self.article_test_index_list)):
+            article_test_X.append('')
+            article_test_y.append([])
+        order_num_test = 0
 
-        pos_con = []
-        neg_con = []
-        pos_credi = []
-        neg_credi = []
-        for i,_ in enumerate(content_credi_all):
-            if content_credi_all[i]['credi'][0] == 0:
-                pos_con.append(content_credi_all[i]['content'])
-                pos_credi.append([0,1])
+        for article_test_index in self.article_test_index_list:
+            if article_test_index not in self.article_credibility_dict: continue
+            y = self.article_credibility_dict[article_test_index]
+            if y >= 4:
+                y = [1, 0]
             else:
-                neg_con.append(content_credi_all[i]['content'])
-                neg_credi.append([1,0
-                                  ])
+                y = [0 ,1]
+            article_test_y[order_num_test] = y
+            content = self.data['node']['article'][article_test_index]['content']
+            content = content.translate(str.maketrans('', '', string.punctuation))
+            article_test_X[order_num_test] = content
+            order_num_test += 1
+        article_test_y = np.concatenate([article_test_y], 0)
 
-
-        y = np.concatenate([pos_credi, neg_credi], 0)
-        x_text = pos_con + neg_con
-        print(x_text)
-        print(len(x_text))
-        print(y)
-        print(len(y))
-        # Build vocabulary
-        max_document_length = max([len(x.split(" ")) for x in x_text])
+        article_all_X = article_train_X + article_test_X
+        max_document_length = max([len(x.split(" ")) for x in article_all_X])
         vocab_processor = learn.preprocessing.VocabularyProcessor(max_document_length)
-        #learn.preprocessing.VocabularyProcessor, 根据所有已分词好的文本建立好一个词典，然后找出每个词在词典中对应的索引，不足长度或者不存在的词补0
-        x = np.array(list(vocab_processor.fit_transform(x_text)))
+        article_all_X = np.array(list(vocab_processor.fit_transform(article_all_X)))
+        article_train_X = article_all_X[:order_num_train,:]
+        article_test_X = article_all_X[order_num_train:, :]
+        return article_train_X, article_train_y, vocab_processor, article_test_X, article_test_y
 
-        # Randomly shuffle data
-        np.random.seed(10)
-        shuffle_indices = np.random.permutation(np.arange(len(y)))
-        print('shuffle_indices:',shuffle_indices)
-        x_shuffled = x[shuffle_indices]
-        y_shuffled = np.array(y)[shuffle_indices]
-
-        # Split train/test set
-        # TODO: This is very crude, should use cross-validation
-        dev_sample_index = -1 * int(FLAGS.dev_sample_percentage * float(len(y)))
-        x_train, x_dev = x_shuffled[:dev_sample_index], x_shuffled[dev_sample_index:]
-        y_train, y_dev = y_shuffled[:dev_sample_index], y_shuffled[dev_sample_index:]
-
-        del x, y, x_shuffled, y_shuffled
-
-        print("Vocabulary Size: {:d}".format(len(vocab_processor.vocabulary_)))
-        print("Train/Dev split: {:d}/{:d}".format(len(y_train), len(y_dev)))
-        #print("x_train:",x_train,"\n y_train:",y_train)
-        return x_train, y_train, vocab_processor, x_dev, y_dev
-        '''
-
-    def train(self,x_train, y_train, vocab_processor, x_dev, y_dev):
+    def train(self,x_train, y_train, vocab_processor, x_dev, y_dev, ratio):
         # Training
         # ==================================================
 
@@ -250,6 +248,7 @@ class MethodTextCNN(method):
                 # Output directory for models and summaries
                 timestamp = str(int(time.time()))
                 out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", timestamp))
+                out_dir = out_dir + '_'+str(ratio)
                 print("Writing to {}\n".format(out_dir))
 
                 # Summaries for loss and accuracy
@@ -304,11 +303,11 @@ class MethodTextCNN(method):
                         cnn.input_y: y_batch,
                         cnn.dropout_keep_prob: 1.0
                     }
-                    step, summaries, loss, accuracy = sess.run(
-                        [global_step, dev_summary_op, cnn.loss, cnn.accuracy],
+                    step, summaries, loss, accuracy, predictions = sess.run(
+                        [global_step, dev_summary_op, cnn.loss, cnn.accuracy, cnn.predictions],
                         feed_dict)
                     time_str = datetime.datetime.now().isoformat()
-                    print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
+                    print("{}: step {}, loss {:g}, acc {:g}, predictions{}".format(time_str, step, loss, accuracy, len(predictions)))
                     if writer:
                         writer.add_summary(summaries, step)
 
@@ -329,7 +328,33 @@ class MethodTextCNN(method):
                         print("Saved model checkpoint to {}\n".format(path))
 
     def run(self):
+        #----------log-------------
+        '''
+        logname = './TextCNN_log.txt'
+        with open(logname, 'w') as logfile:
+            original = sys.stdout
+            sys.stdout = Tee(sys.stdout, logfile)
+        '''
+        #----------------------------
         self.start_time = time.time()
-        x_train, y_train, vocab_processor, x_dev, y_dev = self.preprocess()
-        self.train(x_train, y_train, vocab_processor, x_dev, y_dev)
+        for ratio in self.sample_ratios: #sample_rations一个列表
+            self.build_dataset(ratio)
+            x_train, y_train, vocab_processor, x_dev, y_dev = self.bi_class_batch_generation()
+            print('ratio:', ratio)
+            print('article_train_X.shape:', x_train.shape[0])
+            print('article_train_y.shape:', y_train.shape[0])
+            print('article_test_X.shape:', x_dev.shape[0])
+            print('article_test_y.shape:', y_dev.shape[0])
+            # ---- article training ----
+            self.train(x_train, y_train, vocab_processor, x_dev, y_dev,ratio)
+            #return
+            #sys.stdout = original
+'''            
+class Tee(object):
+    def __init__(self,*files):
+        self.files = files
+    def write(self,obj):
+        for f in self.files:
+            f.write(obj)
+'''
 
